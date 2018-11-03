@@ -2,6 +2,7 @@
 
 import sys, codecs, json, time
 import numpy as np
+import pandas as pd
 #from TwitterApplicationHandler import TwitterApplicationHandler
 from twython import TwythonStreamer, Twython
 from datetime import datetime
@@ -77,10 +78,10 @@ def printTweet(tweet):
 #returns the api object
 def initAPI():
 	# Load in OAuth Tokens  #KRC__these are specific to me! [twitter dev]
-	app_key = "DXuA9J6KSS8TWEelnR1TXxdY2"  #KRC__api_key
-	app_sec = "QTjVQGET9JGLfbCWfWaJS8trxblFJiGA76Om2pPd4F9VNQweI4"  #KRC__api_secretKey
-	user_key = "1035550749738987520-ugjvRAooLEiU2foekW7N1fNSHGcpeo"  #KRC__access_token
-	user_sec = "x1tuHA0Pskq95WeQ0vbwIlCCMzVq9geDFewMfep28OaPi"  #KRC__access_token_secret
+	app_key = "YOUR_API_KEY_HERE"  #KRC__api_key
+	app_sec = "YOUR_API_SECRETKEY_HERE"  #KRC__api_secretKey
+	user_key = "YOUR_ACCESS_TOKEN_HERE"  #KRC__access_token
+	user_sec = "YOUR_ACCESS_TOKEN_SECRET_HERE"  #KRC__access_token_secret
 
 	api = Twython(app_key, app_sec, user_key, user_sec)  #KRC__this is the connection!
 
@@ -88,10 +89,10 @@ def initAPI():
 
 def initStreamAPI(streamType='default'):
 	# Load in OAuth Tokens  #KRC__these are specific to me! [twitter dev]
-	app_key = "DXuA9J6KSS8TWEelnR1TXxdY2"  #KRC__api_key
-	app_sec = "QTjVQGET9JGLfbCWfWaJS8trxblFJiGA76Om2pPd4F9VNQweI4"  #KRC__api_secretKey
-	user_key = "1035550749738987520-ugjvRAooLEiU2foekW7N1fNSHGcpeo"  #KRC__access_token
-	user_sec = "x1tuHA0Pskq95WeQ0vbwIlCCMzVq9geDFewMfep28OaPi"  #KRC__access_token_secret
+	app_key = "YOUR_API_KEY_HERE"  #KRC__api_key
+	app_sec = "YOUR_API_SECRETKEY_HERE"  #KRC__api_secretKey
+	user_key = "YOUR_ACCESS_TOKEN_HERE"  #KRC__access_token
+	user_sec = "YOUR_ACCESS_TOKEN_SECRET_HERE"  #KRC__access_token_secret
 
 	if streamType == 'sample':
 		stream = SampleAPI(app_key, app_sec, user_key, user_sec)
@@ -100,15 +101,6 @@ def initStreamAPI(streamType='default'):
 	stream = FilterAPI(app_key, app_sec, user_key, user_sec)  #KRC__this is the connection!
 
 	return stream
-
-def simple(a,b,c):
-	print('a: %s'%a)
-	print('b: %s'%b)
-	print('c: %s'%c)
-
-def wrapper(func,kwargs):
-	result = func(**kwargs)
-	return result
 
 
 #returns all results that were returned for the api call passed as func.
@@ -298,3 +290,104 @@ def json_to_dict(filename):
 	with open(filename,'r') as f:
 		jstr = f.readlines()
 	return json.loads(jstr[0])
+
+
+###converting raw json twitter timeline data to dataframe
+COLUMNS = ['tweet_id','date','user_id','text','text_noMentions','is_quote_status','is_reply_to_status','is_reply_to_user','numMentions',\
+    'user_verified','user_description_text','user_followers_count','user_friends_count',\
+    'user_listed_count','user_favourites_count','user_statuses_count','retweet_count','favorite_count']
+COLUMNS_USER = ['user_id','user_verified','user_description_text','user_followers_count','user_friends_count',\
+    'user_listed_count','user_favourites_count','user_statuses_count']
+
+def handleMentions(tweet):
+    numMentions = len(tweet['entities']['user_mentions'])
+    if numMentions == 0:
+        return numMentions,'NO_USER_MENTIONS'
+    #else, strip the mentions!
+    indexes = [mention['indices'] for mention in tweet['entities']['user_mentions']]
+    indexes = np.flipud(indexes)  #remove from the back so indexes dont get messed up
+    strippedText = tweet['text']
+    for idx in indexes:
+        strippedText = strippedText.replace(strippedText[idx[0]:idx[1]],'')
+    strippedText = strippedText.strip()
+    return numMentions,strippedText
+
+def getReplyInfo(tweet):
+    statusReply = False
+    userReply = False
+    if tweet['in_reply_to_status_id']:
+        statusReply = True
+    if tweet['in_reply_to_user_id']:
+        userReply = True
+    return statusReply,userReply
+
+"""
+Maps user timeline to DataFrame. Includes user metadata features and tweet features.
+
+Args:
+    uid: The user_id of the current user
+    data: Dict with two keys. 'user_info' and 'user_timeline'
+
+Returns:
+    DataFrame with rows = single tweet instance. columns = features [combined user and tweet]
+    columns = ['text','text_noMentions','is_quote_status','is_reply','numMentions',\
+    'user_verified','user_description_text','user_followers_count','user_friends_count',\
+    'user_listed_count','user_favourites_count','user_statuses_count','retweet_count','favorite_count']
+    
+    column info[type:[range]:info]:
+    'text':str:string:the raw text of the tweet, unchanged
+    'text_noMentions':str:string:the text of the tweet with @mentions removed [='NO_USER_MENTIONS if 0 mentions']
+    'is_quote_status':bool:T/F:denotes if the tweet is a quote status of another tweet
+    'is_reply_to_status':bool:T/F:denotes if the tweet is a reply to someone elses tweet
+    'is_reply_to_user':bool:T/F:denotes if the tweet is a reply to a user
+    'numMentions':int:int:number of mentions found in the tweet
+    'user_verified':bool:T/F:denotes if the user is a verified user
+    'user_description_text':str:string:raw text of the user's profile description
+    'user_followers_count':int:int:number of followers the user has
+    'user_friends_count':int:int:number of people the user follows
+    'user_listed_count':int:int:number of lists the user is a part of
+    'user_favourites_count':int:int:number of tweets the user has liked to date
+    'user_statuses_count':int:int:number of tweets this user has authored to date [note that timeline acquisition is limited to 3200 latest tweets]
+    'retweet_count':int:int:number of times this tweet has been retweeted [at time of collection]
+    'favorite_count':int:int:number of times this tweet has been liked [at time of collection]
+"""
+def rawTimelineToTrainingInstances(uid,data):
+    outData = pd.DataFrame(columns=COLUMNS)
+    userData = pd.DataFrame(columns=COLUMNS_USER)
+    userData = userData.append({'user_verified':data['user_info']['verified']},ignore_index=True)  #need to do for the first one...
+    #userData['user_verified'] = data['user_info']['verified']
+    userData['user_id'] = int(uid)
+    userData['user_description_text'] = data['user_info']['description']
+    userData['user_followers_count'] = data['user_info']['followers_count']
+    userData['user_friends_count'] = data['user_info']['friends_count']
+    userData['user_listed_count'] = data['user_info']['listed_count']
+    userData['user_favourites_count'] = data['user_info']['favourites_count']
+    userData['user_statuses_count'] = data['user_info']['statuses_count']
+    #print(len(data['user_timeline']))
+    #print(userData)
+    for tweet in data['user_timeline']:
+        if 'ErrorCaught' in tweet:
+            print('Handled Tweet ErrorCaught')
+            continue
+        if 'delete' in tweet:
+            print('Handled deleted tweet')
+            continue
+        tweetData = pd.DataFrame(columns=COLUMNS)  #this is a data instance
+        tweetData = tweetData.append(userData,sort=False)  #user data is constant for a single call to this function
+        tweetData['tweet_id'] = int(tweet['id'])
+        tweetData['date'] = tweet['created_at']
+        tweetData['text'] = tweet['text']
+        numMentions,strippedText = handleMentions(tweet)
+        tweetData['text_noMentions'] = strippedText
+        tweetData['is_quote_status'] = tweet['is_quote_status']
+        statusReply,userReply = getReplyInfo(tweet)
+        tweetData['is_reply_to_status'] = statusReply
+        tweetData['is_reply_to_user'] = userReply
+        tweetData['numMentions'] = numMentions
+        tweetData['retweet_count'] = tweet['retweet_count']
+        tweetData['favorite_count'] = tweet['favorite_count']
+        outData = outData.append(tweetData,sort=False)
+        #print(tweetData)
+    outData.set_index('user_id')
+    outData = outData.infer_objects()
+    return outData
