@@ -6,6 +6,7 @@ import pandas as pd
 #from TwitterApplicationHandler import TwitterApplicationHandler
 from twython import TwythonStreamer, Twython
 from datetime import datetime
+from dateutil.parser import parse as parse_date
 
 
 SEARCHCOUNT = 100
@@ -74,14 +75,15 @@ def printTweet(tweet):
 	print(json.dumps(tweet,indent=2,sort_keys=False))
 	return
 
+#pass in stings with your keys
 #initializes the twython api object [opens the twitter api]
 #returns the api object
-def initAPI():
+def initAPI(app_key,app_sec,user_key,user_sec):
 	# Load in OAuth Tokens  #KRC__these are specific to me! [twitter dev]
-	app_key = "YOUR_API_KEY_HERE"  #KRC__api_key
-	app_sec = "YOUR_API_SECRETKEY_HERE"  #KRC__api_secretKey
-	user_key = "YOUR_ACCESS_TOKEN_HERE"  #KRC__access_token
-	user_sec = "YOUR_ACCESS_TOKEN_SECRET_HERE"  #KRC__access_token_secret
+	#app_key = "YOUR_API_KEY_HERE"  #KRC__api_key
+	#app_sec = "YOUR_API_SECRETKEY_HERE"  #KRC__api_secretKey
+	#user_key = "YOUR_ACCESS_TOKEN_HERE"  #KRC__access_token
+	#user_sec = "YOUR_ACCESS_TOKEN_SECRET_HERE"  #KRC__access_token_secret
 
 	api = Twython(app_key, app_sec, user_key, user_sec)  #KRC__this is the connection!
 
@@ -391,3 +393,177 @@ def rawTimelineToTrainingInstances(uid,data):
     outData.set_index('user_id')
     outData = outData.infer_objects()
     return outData
+
+"""
+Returns the number of months between two dates.
+
+Args:
+	d_old: string [format used in twitter 'created_at' fields]
+
+PRE:
+	- assumes d_old is a date BEFORE date_today. This should be the case for our dataset as is.
+	- not an exact calculation, but we don't need finer granularity.
+"""
+def diff_dates_month(d_old):
+	date_today = 'Thu Nov 08 2018'
+	date_today = parse_date(date_today)
+	date_old = parse_date(d_old)
+	return (date_today.year - date_old.year)*12 + (date_today.month - date_old.month)
+
+'''
+get the value of the key for iten in data [dict]. handles non-existing keys
+
+Args:
+	data: a dict
+	keyy: the key for which we want an attribute
+'''
+def getAttribute(data,keyy):
+	sources = {'Twitter for iPhone':'iphone', 'Twitter for Android':'android', 'Twitter Web Client':'web',
+       'Facebook':'facebook', 'IFTTT':'ifttt', 'twittbot.net':'twittbot', 'Instagram':'instagram', 'Twitter Lite':'twitterlite',
+       'Google':'google', 'TweetDeck':'tweetdeck', 'Twitter for iPad':'ipad','Twitter for BlackBerry®':'blackberry'}  #top10 sources, plus 2 others [ipad and blackberry] based on 15mil tweets. top10 represent ~82%of tweets. and any other single source is < 1% of tweets
+	ret = None
+	try:
+		ret = data[keyy]
+		if (ret == ''):
+			ret = None
+		if keyy == 'source': #special parsing for source...
+			ret = (ret.split('>')[-2]).split('<')[0]  #parse source out of raw anchor
+			if ret in sources.keys():
+				ret = sources[ret]  #convert to simple
+			else:
+				ret = 'other'
+		if keyy == 'coordinates':
+			if ret is not None:
+				ret = ret['coordinates']
+	except:
+		ret = None
+	return ret
+
+'''
+very similar to rawTimelineToTrainingInstances. instead, however, build a list of lists, THEN convert to DF [likely faster]
+also, just selecting subset of attributes we didn't already get
+
+Args:
+    uid: The user_id of the current user
+    data: Dict with two keys. 'user_info' and 'user_timeline'
+'''
+def extractAttributes(uid,data):
+	COLUMNS_TWEET = ['tweet_id','tweet_source','tweet_coord','tweet_place']
+	COLUMNS_USERinfo = ['user_location','user_created_at','user_geo_enabled']
+	infos = []
+	#get user info, will be part of every tweet instance
+	user_info = []
+	user_info.append(getAttribute(data['user_info'],'location'))
+	user_info.append(getAttribute(data['user_info'],'created_at'))
+	user_info.append(getAttribute(data['user_info'],'geo_enabled'))
+	#print(user_info)
+	tweet_infos = []  #list of list will turn to dataframe
+	for tweet in data['user_timeline']:
+		#tweet is a tweet object
+		tweet_info = []
+		try:
+			tweet_info.append(int(getAttribute(tweet,'id')))
+		except:
+			tweet_info.append(getAttribute(tweet,'id'))
+		tweet_info.append(getAttribute(tweet,'source'))
+		tweet_info.append(getAttribute(tweet,'coordinates'))
+		tweet_info.append(getAttribute(tweet,'place'))
+		tweet_infos.append(tweet_info)
+	tweetdata = pd.DataFrame(tweet_infos,columns=COLUMNS_TWEET)
+	userdata = pd.DataFrame([user_info for _ in range(len(tweet_infos))],columns=COLUMNS_USERinfo)
+	finaldata = pd.concat([tweetdata,userdata],axis=1)
+	return finaldata
+
+"""
+refactored to get ALL tweets attributes as fast as possible
+same as extractAttributes() but this gathers ALL the attributes [basically combines extractAttributes and rawTimelineToTrainingInstances]
+"""
+def extractAllAttributes(uid,data,globalTweets):
+	COLUMNS_ALL_TWEET = ['tweet_id','tweet_truncated','date','tweet_source','tweet_coord','tweet_place','text','text_noMentions','is_quote_status',\
+	'is_reply_to_status','is_reply_to_user','numMentions','retweet_count','favorite_count']
+	COLUMNS_ALL_USER = ['user_id','user_verified','user_description_text','user_followers_count','user_friends_count',\
+    'user_listed_count','user_favourites_count','user_statuses_count','user_location','user_created_year','user_created_month',\
+    'user_geo_enabled','user_img_url','user_banner_url']
+	infos = []
+	#get user info, will be part of every tweet instance
+	user_info = []
+	try:
+		uid = int(uid)  #uid is now int
+	except:
+		print('bad user_id found in extractAllAttributes()')
+		return None,globalTweets  #bad user id
+	user_info.append(uid)
+	user_info.append(getAttribute(data['user_info'],'verified'))
+	user_info.append(getAttribute(data['user_info'],'description'))
+	user_info.append(getAttribute(data['user_info'],'followers_count'))
+	user_info.append(getAttribute(data['user_info'],'friends_count'))
+	user_info.append(getAttribute(data['user_info'],'listed_count'))
+	user_info.append(getAttribute(data['user_info'],'favourites_count'))
+	user_info.append(getAttribute(data['user_info'],'statuses_count'))
+	user_info.append(getAttribute(data['user_info'],'location'))
+	#user_info.append(getAttribute(data['user_info'],'created_at'))
+	user_year = None
+	user_month = None
+	try:
+		user_created_at = parse_date(getAttribute(data['user_info'],'created_at'))
+		user_year = user_created_at.year
+		user_month = user_created_at.month
+	except:
+		user_year = None
+		user_month = None
+	user_info.append(user_year)
+	user_info.append(user_month)
+	user_info.append(getAttribute(data['user_info'],'geo_enabled'))
+	user_info.append(getAttribute(data['user_info'],'profile_image_url'))
+	user_info.append(getAttribute(data['user_info'],'profile_banner_url'))
+	#print(user_info)
+	tweet_infos = []  #list of list will turn to dataframe
+	for tweet in data['user_timeline']:
+		if 'ErrorCaught' in tweet:
+			print('Handled Tweet ErrorCaught')
+			continue
+		if 'delete' in tweet:
+			print('Handled deleted tweet')
+			continue
+		#tweet is a tweet object
+		tweet_info = []
+		tid = getAttribute(tweet,'id')
+		TID_0 = False
+		try:
+			tid = int(tid)
+			if tid == 0:
+				print('tweet_id was 0. no good. skip.')
+				TID_0 = True
+		except:
+			print('bad tweet_id found in extractAllAttributes(). Skipping tweet')
+			continue
+		if TID_0:
+			continue
+		if tid in globalTweets:
+			print('tweet_id %s already in set. Skipping.'%tid)
+			continue
+		tweet_info.append(tid)
+		tweet_info.append(getAttribute(tweet,'truncated'))
+		tweet_info.append(getAttribute(tweet,'created_at'))
+		tweet_info.append(getAttribute(tweet,'source'))
+		tweet_info.append(getAttribute(tweet,'coordinates'))
+		tweet_info.append(getAttribute(tweet,'place'))
+		tweet_info.append(getAttribute(tweet,'text'))
+		numMentions,strippedText = handleMentions(tweet)
+		tweet_info.append(strippedText)
+		tweet_info.append(getAttribute(tweet,'is_quote_status'))
+		statusReply,userReply = getReplyInfo(tweet)
+		tweet_info.append(statusReply)
+		tweet_info.append(userReply)
+		tweet_info.append(numMentions)
+		tweet_info.append(getAttribute(tweet,'retweet_count'))
+		tweet_info.append(getAttribute(tweet,'favorite_count'))
+		tweet_infos.append(tweet_info)
+		globalTweets[tid] = None  #add successful tid to globalTweets
+	tweetdata = pd.DataFrame(tweet_infos,columns=COLUMNS_ALL_TWEET)
+	userdata = pd.DataFrame([user_info for _ in range(len(tweet_infos))],columns=COLUMNS_ALL_USER)
+	finaldata = pd.concat([tweetdata,userdata],axis=1)
+	finaldata = finaldata.infer_objects()
+	if finaldata.shape[0] == 0:
+		return None,globalTweets
+	return finaldata,globalTweets
