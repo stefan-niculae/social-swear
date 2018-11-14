@@ -301,27 +301,28 @@ COLUMNS = ['tweet_id','date','user_id','text','text_noMentions','is_quote_status
 COLUMNS_USER = ['user_id','user_verified','user_description_text','user_followers_count','user_friends_count',\
     'user_listed_count','user_favourites_count','user_statuses_count']
 
-def handleMentions(tweet):
-    numMentions = len(tweet['entities']['user_mentions'])
-    if numMentions == 0:
-        return numMentions,'NO_USER_MENTIONS'
-    #else, strip the mentions!
-    indexes = [mention['indices'] for mention in tweet['entities']['user_mentions']]
-    indexes = np.flipud(indexes)  #remove from the back so indexes dont get messed up
-    strippedText = tweet['text']
-    for idx in indexes:
-        strippedText = strippedText.replace(strippedText[idx[0]:idx[1]],'')
-    strippedText = strippedText.strip()
-    return numMentions,strippedText
+def handleMentions(tweet,textFieldName):
+	numMentions = len(tweet['entities']['user_mentions'])
+	if numMentions == 0:
+		return numMentions,'NO_USER_MENTIONS'
+	#else, strip the mentions!
+	indexes = [mention['indices'] for mention in tweet['entities']['user_mentions']]
+	indexes = np.flipud(indexes)  #remove from the back so indexes dont get messed up
+	#textFieldName will be 'text' or 'full_text' depending if tweet collection was extended or not
+	strippedText = tweet[textFieldName]
+	for idx in indexes:
+		strippedText = strippedText.replace(strippedText[idx[0]:idx[1]],'')
+	strippedText = strippedText.strip()
+	return numMentions,strippedText
 
 def getReplyInfo(tweet):
-    statusReply = False
-    userReply = False
-    if tweet['in_reply_to_status_id']:
-        statusReply = True
-    if tweet['in_reply_to_user_id']:
-        userReply = True
-    return statusReply,userReply
+	statusReply = False
+	userReply = False
+	if tweet['in_reply_to_status_id']:
+		statusReply = True
+	if tweet['in_reply_to_user_id']:
+		userReply = True
+	return statusReply,userReply
 
 """
 Maps user timeline to DataFrame. Includes user metadata features and tweet features.
@@ -474,16 +475,44 @@ def extractAttributes(uid,data):
 	finaldata = pd.concat([tweetdata,userdata],axis=1)
 	return finaldata
 
+#returns list of image urls found in the tweet. if non, returns None
+def getImageUrls(tweet):
+	image_urls = []
+	image_urls = []
+	if 'media' in tweet['entities']:
+		if len(tweet['entities']['media']) > 0:
+			media = tweet['entities']['media'][0]
+			if media['type'] == 'photo':
+				url = media['media_url']
+				image_urls.append(url)
+	if 'extended_entities' in tweet:
+		if 'media' in tweet['extended_entities']:
+			if len(tweet['extended_entities']['media']) > 0:
+				for media in tweet['extended_entities']['media']:
+					if media['type'] == 'photo':
+						url = media['media_url']
+						if url not in image_urls:
+							image_urls.append(url)
+	if len(image_urls) == 0:
+		image_urls = None
+	return image_urls
+
 """
 refactored to get ALL tweets attributes as fast as possible
 same as extractAttributes() but this gathers ALL the attributes [basically combines extractAttributes and rawTimelineToTrainingInstances]
 """
-def extractAllAttributes(uid,data,globalTweets):
+def extractAllAttributes(uid,data,globalTweets,extended=False):
 	COLUMNS_ALL_TWEET = ['tweet_id','tweet_truncated','date','tweet_source','tweet_coord','tweet_place','text','text_noMentions','is_quote_status',\
 	'is_reply_to_status','is_reply_to_user','numMentions','retweet_count','favorite_count']
 	COLUMNS_ALL_USER = ['user_id','user_verified','user_description_text','user_followers_count','user_friends_count',\
-    'user_listed_count','user_favourites_count','user_statuses_count','user_location','user_created_year','user_created_month',\
-    'user_geo_enabled','user_img_url','user_banner_url']
+	'user_listed_count','user_favourites_count','user_statuses_count','user_location','user_created_year','user_created_month',\
+	'user_geo_enabled','user_img_url','user_banner_url']
+	if extended:  #extended tweet has slightly different attributes]
+		COLUMNS_ALL_TWEET = ['tweet_id','tweet_truncated','date','tweet_source','tweet_coord','tweet_place','text','text_noMentions','is_quote_status',\
+			'is_reply_to_status','is_reply_to_user','numMentions','image_urls','retweet_count','favorite_count']
+		COLUMNS_ALL_USER = ['user_id','user_verified','user_description_text','user_followers_count','user_friends_count',\
+			'user_listed_count','user_favourites_count','user_statuses_count','user_location','user_created_year','user_created_month',\
+			'user_geo_enabled','user_img_url','user_banner_url']
 	infos = []
 	#get user info, will be part of every tweet instance
 	user_info = []
@@ -548,14 +577,20 @@ def extractAllAttributes(uid,data,globalTweets):
 		tweet_info.append(getAttribute(tweet,'source'))
 		tweet_info.append(getAttribute(tweet,'coordinates'))
 		tweet_info.append(getAttribute(tweet,'place'))
-		tweet_info.append(getAttribute(tweet,'text'))
-		numMentions,strippedText = handleMentions(tweet)
+		textFieldName = 'text'
+		if extended:
+			textFieldName = 'full_text'
+		tweet_info.append(getAttribute(tweet,textFieldName))
+		numMentions,strippedText = handleMentions(tweet,textFieldName)
 		tweet_info.append(strippedText)
 		tweet_info.append(getAttribute(tweet,'is_quote_status'))
 		statusReply,userReply = getReplyInfo(tweet)
 		tweet_info.append(statusReply)
 		tweet_info.append(userReply)
 		tweet_info.append(numMentions)
+		if extended:
+			image_urls = getImageUrls(tweet)
+			tweet_info.append(image_urls)	
 		tweet_info.append(getAttribute(tweet,'retweet_count'))
 		tweet_info.append(getAttribute(tweet,'favorite_count'))
 		tweet_infos.append(tweet_info)
