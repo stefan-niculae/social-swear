@@ -502,15 +502,15 @@ refactored to get ALL tweets attributes as fast as possible
 same as extractAttributes() but this gathers ALL the attributes [basically combines extractAttributes and rawTimelineToTrainingInstances]
 """
 def extractAllAttributes(uid,data,globalTweets,extended=False):
-	COLUMNS_ALL_TWEET = ['tweet_id','tweet_truncated','date','tweet_source','tweet_coord','tweet_place','text','text_noMentions','is_quote_status',\
+	COLUMNS_ALL_TWEET = ['tweet_id','tweet_truncated','date','tweet_source','tweet_lang','tweet_coord','tweet_place','text','text_noMentions','is_quote_status',\
 	'is_reply_to_status','is_reply_to_user','numMentions','retweet_count','favorite_count']
-	COLUMNS_ALL_USER = ['user_id','user_verified','user_description_text','user_followers_count','user_friends_count',\
+	COLUMNS_ALL_USER = ['user_id','user_verified','user_lang','user_description_text','user_followers_count','user_friends_count',\
 	'user_listed_count','user_favourites_count','user_statuses_count','user_location','user_created_year','user_created_month',\
 	'user_geo_enabled','user_img_url','user_banner_url']
 	if extended:  #extended tweet has slightly different attributes]
-		COLUMNS_ALL_TWEET = ['tweet_id','tweet_truncated','date','tweet_source','tweet_coord','tweet_place','text','text_noMentions','is_quote_status',\
+		COLUMNS_ALL_TWEET = ['tweet_id','tweet_truncated','date','tweet_source','tweet_lang','tweet_coord','tweet_place','text','text_noMentions','is_quote_status',\
 			'is_reply_to_status','is_reply_to_user','numMentions','image_urls','retweet_count','favorite_count']
-		COLUMNS_ALL_USER = ['user_id','user_verified','user_description_text','user_followers_count','user_friends_count',\
+		COLUMNS_ALL_USER = ['user_id','user_verified','user_lang','user_description_text','user_followers_count','user_friends_count',\
 			'user_listed_count','user_favourites_count','user_statuses_count','user_location','user_created_year','user_created_month',\
 			'user_geo_enabled','user_img_url','user_banner_url']
 	infos = []
@@ -523,6 +523,7 @@ def extractAllAttributes(uid,data,globalTweets,extended=False):
 		return None,globalTweets  #bad user id
 	user_info.append(uid)
 	user_info.append(getAttribute(data['user_info'],'verified'))
+	user_info.append(getAttribute(data['user_info'],'lang'))
 	user_info.append(getAttribute(data['user_info'],'description'))
 	user_info.append(getAttribute(data['user_info'],'followers_count'))
 	user_info.append(getAttribute(data['user_info'],'friends_count'))
@@ -575,6 +576,7 @@ def extractAllAttributes(uid,data,globalTweets,extended=False):
 		tweet_info.append(getAttribute(tweet,'truncated'))
 		tweet_info.append(getAttribute(tweet,'created_at'))
 		tweet_info.append(getAttribute(tweet,'source'))
+		tweet_info.append(getAttribute(tweet,'lang'))
 		tweet_info.append(getAttribute(tweet,'coordinates'))
 		tweet_info.append(getAttribute(tweet,'place'))
 		textFieldName = 'text'
