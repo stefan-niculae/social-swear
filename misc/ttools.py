@@ -7,7 +7,8 @@ import pandas as pd
 from twython import TwythonStreamer, Twython
 from datetime import datetime
 from dateutil.parser import parse as parse_date
-
+import requests
+import emoji
 
 SEARCHCOUNT = 100
 
@@ -606,3 +607,41 @@ def extractAllAttributes(uid,data,globalTweets,extended=False):
 	if finaldata.shape[0] == 0:
 		return None,globalTweets
 	return finaldata,globalTweets
+
+def captionCleaner(text):
+	emojimap = {':beaming_face_with_smiling_eyes:':' happy',':neutral_face:':' neutral',':flushed_face:':' unclear',':loudly_crying_face:':' sad',':hushed_face:':'amazed'}
+	preList = ["I think it's","I can't really describe the picture but I do see","I am not really confident, but I think it's","I really can't describe the picture"]
+	#replace emoji with textual emoji, textual emoji replaced with word
+	try:
+		text = emoji.demojize(text)
+	except:
+		pass
+	for key,value in emojimap.items():
+	  if key in text:
+	      text = text.replace(key,value)
+	for pre in preList:
+	  if text.startswith(pre):
+	      text = text.replace(pre,'').replace('he/she','they')
+	return text
+
+
+#input is request session [helps keepalive for many requests] and image url list ['url1','url2']!
+#returns str of caption, or None if bad response
+def imageCaption(session,image_urls):
+	captions = []
+	for image_url in image_urls:
+		data = {"Content": image_url,"Type": "CaptionRequest"}
+		headers = {"Content-Type": "application/json; charset=utf-8"}
+		MESSAGES_URL = 'https://captionbot.azurewebsites.net/api/messages'
+		resp = session.post(MESSAGES_URL, data=json.dumps(data), headers=headers)
+		if not resp.ok:
+			res = None  # bad response
+		else:
+			res = resp.text[1:-1].replace('\\"', '"').replace('\\n', '\n').strip()
+			#res = captionCleaner(res)  # better to do this later, return raw responses
+			captions.append(res)
+	if captions:  # not empty
+		res = '. '.join(captions)  #builds sentance for each caption found
+	else:
+		res = None
+	return res
