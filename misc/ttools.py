@@ -9,6 +9,7 @@ from datetime import datetime
 from dateutil.parser import parse as parse_date
 import requests
 import emoji
+from skimage import io
 
 SEARCHCOUNT = 100
 
@@ -645,3 +646,26 @@ def imageCaption(session,image_urls):
 	else:
 		res = None
 	return res
+
+def imageColorStats(image_urls):
+	if not image_urls:
+		return pd.Series([None,None,None])
+	try:
+		if np.isnan(image_urls):
+			return pd.Series([None,None,None])
+	except:
+		pass
+	imgAves = np.zeros((3,),dtype=np.float64)
+	for image_url in image_urls:
+		try:
+			image = io.imread(image_url)
+			avg = image.mean(axis=(0,1))[0:3]
+			#print(image.shape)
+			imgAves += avg
+		except:
+			return pd.Series([None,None,None])  # HTTP error
+	try:
+		imgAves = pd.Series(imgAves/len(image_urls))
+	except:
+		return pd.Series([None,None,None])  # some other error
+	return imgAves  # average red pixels in all images, average green, average blue
